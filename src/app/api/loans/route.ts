@@ -94,6 +94,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const bypass = (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
   const user = await getUserFromNextRequest(req);
   if (!user) {
     return jsonError(401, { code: "UNAUTHORIZED", message: "Chưa đăng nhập" });
@@ -127,7 +128,7 @@ export async function POST(req: NextRequest) {
         principalAmount: parsed.data.principalAmount,
         dueDate,
         notes: parsed.data.notes ?? null,
-        createdById: user.id
+        createdById: bypass ? null : user.id
       }
     });
 
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest) {
   });
 
   await writeAuditLog({
-    user,
+    user: bypass ? null : user,
     action: "LOAN_CREATE",
     targetTable: "loans",
     targetId: loan.id,

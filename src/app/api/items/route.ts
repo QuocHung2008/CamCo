@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const bypass = (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
   const user = await getUserFromNextRequest(req);
   if (!user) {
     return jsonError(401, { code: "UNAUTHORIZED", message: "Chưa đăng nhập" });
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
   });
 
   await writeAuditLog({
-    user,
+    user: bypass ? null : user,
     action: "ITEM_CREATE",
     targetTable: "items",
     targetId: item.id,

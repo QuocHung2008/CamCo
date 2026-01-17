@@ -12,6 +12,7 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: { id: string } }
 ) {
+  const bypass = (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
   const user = await getUserFromNextRequest(req);
   if (!user) {
     return jsonError(401, { code: "UNAUTHORIZED", message: "Chưa đăng nhập" });
@@ -45,7 +46,7 @@ export async function PATCH(
   });
 
   await writeAuditLog({
-    user,
+    user: bypass ? null : user,
     action: "LOAN_STATUS_TOGGLE",
     targetTable: "loans",
     targetId: loan.id,

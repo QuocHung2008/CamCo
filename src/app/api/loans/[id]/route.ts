@@ -34,6 +34,7 @@ export async function DELETE(
   req: NextRequest,
   ctx: { params: { id: string } }
 ) {
+  const bypass = (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
   const user = await getUserFromNextRequest(req);
   if (!user) {
     return jsonError(401, { code: "UNAUTHORIZED", message: "Chưa đăng nhập" });
@@ -67,7 +68,7 @@ export async function DELETE(
   }
 
   await writeAuditLog({
-    user,
+    user: bypass ? null : user,
     action: "LOAN_DELETE",
     targetTable: "loans",
     targetId: ctx.params.id,

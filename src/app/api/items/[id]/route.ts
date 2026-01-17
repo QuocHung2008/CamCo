@@ -12,6 +12,7 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: { id: string } }
 ) {
+  const bypass = (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
   const user = await getUserFromNextRequest(req);
   if (!user) {
     return jsonError(401, { code: "UNAUTHORIZED", message: "Chưa đăng nhập" });
@@ -47,7 +48,7 @@ export async function PATCH(
   });
 
   await writeAuditLog({
-    user,
+    user: bypass ? null : user,
     action: "ITEM_UPDATE",
     targetTable: "items",
     targetId: item.id,
@@ -64,6 +65,7 @@ export async function DELETE(
   req: NextRequest,
   ctx: { params: { id: string } }
 ) {
+  const bypass = (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
   const user = await getUserFromNextRequest(req);
   if (!user) {
     return jsonError(401, { code: "UNAUTHORIZED", message: "Chưa đăng nhập" });
@@ -79,7 +81,7 @@ export async function DELETE(
   await prisma.item.delete({ where: { id: ctx.params.id } });
 
   await writeAuditLog({
-    user,
+    user: bypass ? null : user,
     action: "ITEM_DELETE",
     targetTable: "items",
     targetId: ctx.params.id,

@@ -1,8 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
-import { compare, hash } from "bcryptjs";
+import { compare } from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
-import { randomBytes } from "crypto";
 
 import { prisma } from "@/lib/db";
 
@@ -20,21 +19,17 @@ function isAuthBypassEnabled() {
   return (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
 }
 
-async function getBypassUser(): Promise<RequestUser> {
+function getBypassUser(): RequestUser {
   const username = process.env.AUTH_BYPASS_USERNAME ?? "admin";
   const roleEnv = (process.env.AUTH_BYPASS_ROLE ?? "ADMIN").toUpperCase();
   const role: Role = roleEnv === "EDITOR" || roleEnv === "VIEWER" ? roleEnv : "ADMIN";
 
-  const existing = await prisma.user.findUnique({ where: { username } });
-  if (existing) {
-    return { id: existing.id, username: existing.username, role: existing.role as Role };
-  }
+  const envId = process.env.AUTH_BYPASS_USER_ID ?? "";
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const id = uuidRegex.test(envId) ? envId : "00000000-0000-0000-0000-000000000000";
 
-  const passwordHash = await hash(randomBytes(32).toString("hex"), 10);
-  const created = await prisma.user.create({
-    data: { username, passwordHash, role }
-  });
-  return { id: created.id, username: created.username, role: created.role as Role };
+  return { id, username, role };
 }
 
 function getJwtSecret() {
@@ -89,7 +84,7 @@ export async function getUserFromNextRequest(
   req: NextRequest
 ): Promise<RequestUser | null> {
   if (isAuthBypassEnabled()) {
-    return await getBypassUser();
+    return getBypassUser();
   }
   const token = getSessionTokenFromRequest(req);
   if (!token) return null;
@@ -102,7 +97,7 @@ export async function getUserFromNextRequest(
 
 export async function getRequestUser(): Promise<RequestUser | null> {
   if (isAuthBypassEnabled()) {
-    return await getBypassUser();
+    return getBypassUser();
   }
   const token = cookies().get(COOKIE_NAME)?.value;
   if (!token) return null;
