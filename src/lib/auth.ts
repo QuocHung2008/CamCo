@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
-import { compare } from "bcryptjs";
+import { compare, hash } from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
+import { randomBytes } from "crypto";
 
 import { prisma } from "@/lib/db";
 
@@ -14,6 +15,27 @@ export type RequestUser = {
 };
 
 const COOKIE_NAME = "camco_session";
+
+function isAuthBypassEnabled() {
+  return (process.env.AUTH_BYPASS ?? "").toLowerCase() === "true";
+}
+
+async function getBypassUser(): Promise<RequestUser> {
+  const username = process.env.AUTH_BYPASS_USERNAME ?? "admin";
+  const roleEnv = (process.env.AUTH_BYPASS_ROLE ?? "ADMIN").toUpperCase();
+  const role: Role = roleEnv === "EDITOR" || roleEnv === "VIEWER" ? roleEnv : "ADMIN";
+
+  const existing = await prisma.user.findUnique({ where: { username } });
+  if (existing) {
+    return { id: existing.id, username: existing.username, role: existing.role as Role };
+  }
+
+  const passwordHash = await hash(randomBytes(32).toString("hex"), 10);
+  const created = await prisma.user.create({
+    data: { username, passwordHash, role }
+  });
+  return { id: created.id, username: created.username, role: created.role as Role };
+}
 
 function getJwtSecret() {
   const secret = process.env.AUTH_JWT_SECRET;
@@ -66,6 +88,9 @@ export function getSessionTokenFromRequest(req: NextRequest) {
 export async function getUserFromNextRequest(
   req: NextRequest
 ): Promise<RequestUser | null> {
+  if (isAuthBypassEnabled()) {
+    return await getBypassUser();
+  }
   const token = getSessionTokenFromRequest(req);
   if (!token) return null;
   try {
@@ -76,6 +101,9 @@ export async function getUserFromNextRequest(
 }
 
 export async function getRequestUser(): Promise<RequestUser | null> {
+  if (isAuthBypassEnabled()) {
+    return await getBypassUser();
+  }
   const token = cookies().get(COOKIE_NAME)?.value;
   if (!token) return null;
   try {

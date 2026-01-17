@@ -12,7 +12,8 @@ export function Topbar({ user }: { user: RequestUser }) {
     const res = await fetch("/api/auth/logout", { method: "POST" });
     if (res.ok) {
       toast.success("Đã đăng xuất");
-      router.replace("/login");
+      const me = await fetch("/api/me").catch(() => null);
+      router.replace(me && me.ok ? "/dashboard" : "/login");
       return;
     }
     toast.error("Đăng xuất thất bại");
@@ -37,4 +38,3 @@ export function Topbar({ user }: { user: RequestUser }) {
     </header>
   );
 }
-
