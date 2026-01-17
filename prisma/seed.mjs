@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 const username = process.env.SEED_ADMIN_USERNAME ?? "admin";
-const password = process.env.SEED_ADMIN_PASSWORD;
+const password = "1234";
 
 if (!password) {
   console.error("Missing SEED_ADMIN_PASSWORD");
