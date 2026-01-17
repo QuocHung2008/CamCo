@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum ChuocStatus {
+  CHUA_CHUOC
+  DA_CHUOC
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  loans     Loan[]     @relation("LoanCreatedBy")
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+model Item {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String?  @unique
+  name        String
+  unit        String?
+  description String?
+  price       Decimal? @db.Decimal(18, 2)
+  barcode     String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  loanItems LoanItem[]
+
+  @@map("items")
+}
+
+model Loan {
+  id              String       @id @default(uuid()) @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  customerName    String       @map("customer_name")
+  principalAmount Decimal      @map("principal_amount") @db.Decimal(18, 2)
+  statusChuoc     ChuocStatus  @default(CHUA_CHUOC) @map("status_chuoc")
+  dueDate         DateTime?    @map("due_date") @db.Date
+  notes           String?
+  createdById     String?      @map("created_by") @db.Uuid
+  deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz(6)
+
+  createdBy User?       @relation("LoanCreatedBy", fields: [createdById], references: [id])
+  items     LoanItem[]
+
+  @@index([principalAmount], map: "idx_loans_principal")
+  @@index([statusChuoc], map: "idx_loans_status")
+  @@index([createdAt], map: "idx_loans_created_at")
+  @@map("loans")
+}
+
+model LoanItem {
+  id       String  @id @default(uuid()) @db.Uuid
+  loanId   String  @map("loan_id") @db.Uuid
+  itemId   String? @map("item_id") @db.Uuid
+  quantity Int?
+  note     String?
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  item Item? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@index([loanId], map: "idx_loan_items_loan_id")
+  @@index([itemId], map: "idx_loan_items_item_id")
+  @@map("loan_items")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  action      String
+  targetTable String?  @map("target_table")
+  targetId    String?  @map("target_id") @db.Uuid
+  details     Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId], map: "idx_audit_user")
+  @@index([createdAt], map: "idx_audit_created_at")
+  @@map("audit_logs")
+}

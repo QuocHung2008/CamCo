@@ -1,0 +1,167 @@
+Mục tiêu: Thiết kế lại, tối ưu, tái cấu trúc và sinh kế hoạch triển khai cho phần mềm quản lý cầm cố (web-first, responsive cho mobile/tablet/desktop). Không dùng Python. Triển khai lên Vercel, chạy tốt trên macOS. Sau khi build xong, AI phải quét toàn bộ dự án (static analysis, type check, tests, audit, bundle check), cố gắng tự động sửa lỗi (lint --fix, type fixes, npm audit fix, v.v.), báo cáo kết quả và liệt kê lỗi không sửa được cùng hướng xử lý.
+1) Phạm vi & yêu cầu chức năng chính (bắt buộc)
+Double-click đổi trạng thái "ô chuộc"
+Mặc định: "Chưa Chuộc".
+Double-click (desktop) / double-tap (mobile) vào ô trạng thái => toggle "Chưa Chuộc" ⇄ "Đã Chuộc".
+Hiển thị: Chưa Chuộc = đỏ, Đã Chuộc = xanh; có tooltip giải thích khi hover.
+Thay đổi lưu ngay lên DB qua API; UI dùng optimistic update + rollback nếu lỗi. Chỉ cho phép khi user có quyền edit.
+Tìm kiếm theo số tiền
+Hỗ trợ: tìm theo giá trị exact, khoảng (min–max); server-side filtering; phân trang + sắp xếp; response nhanh cho dataset lớn.
+Loại bỏ lãi suất & tổng tiền
+Xóa mọi trường, tính toán, hiển thị liên quan đến interest_rate và total_amount trong UI, API, DB và báo/ refactor những chỗ phụ thuộc (reports, business logic).
+Tab “Danh mục hàng”
+Quản lý item: thêm/sửa/xóa (tên, mã, đơn vị, mô tả, giá tham khảo (tuỳ chọn), barcode).
+Khi tạo phiếu cầm: chọn nhanh từ danh mục hoặc thêm inline; autocomplete search.
+Lưu DB online
+DB là managed cloud DB (Postgres/MySQL). Kết nối qua API an toàn (TLS). Cấu hình connection pooling, backup định kỳ, schema tối ưu cho hàng chục nghìn bản ghi.
+Xóa phiếu bằng chuột phải
+Right-click trên id hiển thị context menu Xóa. Chọn Xóa => modal xác nhận (hiện chi tiết phiếu). Sau xóa ghi audit log (ai xóa, lúc nào). Hỗ trợ soft-delete hoặc hard-delete theo cấu hình.
+Export Excel có mật khẩu
+Export XLSX server-side theo filters hiện tại; mật khẩu cố định = "197781". Nếu thư viện không hỗ trợ password cho XLSX, thay bằng nén AES-256 zip passworded = "197781".
+Endpoint kiểm soát quyền truy cập; chỉ user có quyền export mới được gọi.
+Hiệu năng & mở rộng
+Thiết kế để chịu hàng chục nghìn bản ghi: indexing, cursor-based pagination, batch queries, materialized views nếu cần.
+Giao diện & UX
+Responsive mobile-first + desktop; sidebar (icon + label): Dashboard, Phiếu Cầm, Danh mục hàng, Báo cáo, Người dùng, Cài đặt.
+Touch-target lớn, nhiều icon (lucide / FontAwesome / Material), inline validation, toast notifications, keyboard + ARIA accessibility.
+Đa thiết bị & online
+Web responsive hoặc PWA; cloud-hosted; offline sync không bắt buộc.
+2) Ràng buộc kỹ thuật (bắt buộc)
+Không sử dụng Python.
+Backend: chọn 1 trong: TypeScript/Node.js (NestJS/Express), Java (Spring Boot), C# (.NET Core), Go, Rust. Ưu tiên: Node.js + TypeScript (Next.js API Routes / NestJS) để deploy liền mạch lên Vercel.
+Frontend: React (TypeScript) (ưu tiên Next.js) hoặc Vue 3 (TypeScript); styling: Tailwind CSS (hoặc tương đương).
+DB: PostgreSQL (gợi ý) hoặc MySQL — hosted (Supabase, Neon, AWS RDS, PlanetScale).
+ORM: Prisma / TypeORM / Sequelize (nếu Node).
+Auth: JWT + Role-based access control; HTTPS enforced.
+Logging & Audit trail, DB backups, rate-limiting, CORS cấu hình.
+3) Yêu cầu phân tích code hiện tại & refactor
+Phân tích cấu trúc thư mục, module, dependency graph, điểm nóng hiệu năng.
+Liệt kê 3–5 vấn đề chính (ví dụ duplicate logic, tight coupling, thiếu transaction, queries không index).
+Đề xuất kiến trúc: tách controller/service/repository, migrations DB, API contract, transactional boundaries.
+Kế hoạch migration dữ liệu: bảo toàn dữ liệu hiện tại, xóa cột interest_rate & total_amount an toàn (backup + migration script + verify).
+4) API mẫu & schema DB (yêu cầu xuất trong deliverable)
+SQL schema mẫu (ngắn gọn) — Postgres:
+CREATE TABLE users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  username text UNIQUE NOT NULL,
+  password_hash text NOT NULL,
+  role text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+CREATE TABLE items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code text UNIQUE,
+  name text NOT NULL,
+  unit text,
+  description text,
+  price numeric,
+  barcode text,
+  created_at timestamptz DEFAULT now()
+);
+CREATE TABLE loans (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  customer_name text NOT NULL,
+  principal_amount numeric NOT NULL,
+  status_chuoc text NOT NULL CHECK (status_chuoc IN ('CHUA_CHUOC','DA_CHUOC')),
+  due_date date,
+  notes text,
+  created_by uuid REFERENCES users(id),
+  deleted_at timestamptz NULL
+);
+CREATE TABLE loan_items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  loan_id uuid REFERENCES loans(id),
+  item_id uuid REFERENCES items(id),
+  quantity int,
+  note text
+);
+CREATE TABLE audit_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid,
+  action text,
+  target_table text,
+  target_id uuid,
+  details jsonb,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX idx_loans_principal ON loans(principal_amount);
+CREATE INDEX idx_loans_status ON loans(status_chuoc);
+CREATE INDEX idx_loans_created_at ON loans(created_at);
+Lưu ý: không có interest_rate hay total_amount.
+Endpoints mẫu
+GET /api/loans?amount_min=&amount_max=&page=&page_size=&q= — tìm kiếm theo số tiền (server-side).
+PATCH /api/loans/:id/status — toggle trạng thái chuộc (body: { status: 'DA_CHUOC' | 'CHUA_CHUOC' }).
+DELETE /api/loans/:id — xóa phiếu (soft-delete nếu config).
+GET /api/items?q=&limit= — autocomplete.
+POST /api/export?type=xlsx — export current filter -> returns protected file (stream/download).
+Mô tả lỗi chuẩn: trả 400/401/403/404/500 với JSON { code, message, details? }.
+5) UX / Wireframes & components (yêu cầu AI sinh)
+Wireframes: Desktop + Mobile cho: Dashboard, LoanList (datatable có double-click cell), LoanForm (inline item select), ItemCatalog, Modal Delete, Export dialog.
+Component list: Sidebar, Topbar, LoanList, LoanRowCell (double-click handler), LoanForm, ItemCatalog, ExportModal, ConfirmDialog, Toast.
+Accessibility: keyboard nav, ARIA labels, color contrast.
+6) Vercel & macOS — yêu cầu deploy & build
+Framework ưu tiên: Next.js (TypeScript) để tương thích Vercel.
+Cung cấp: vercel.json, next.config.js (nếu cần), package.json scripts: dev, build, start, lint, type-check, test, analyze, predeploy.
+Hướng dẫn dev trên macOS: Homebrew, nvm, Node 18+, pnpm/yarn/npm, brew install tools (7zip nếu cần để zip password).
+CI/CD: GitHub Actions workflow để chạy lint/type/test/build + post-build scan + deploy via vercel/action.
+7) Sau build — quét & sửa (AI phải thực hiện & báo cáo)
+Sau npm run build, chạy tự động theo thứ tự:
+npm ci (clean install)
+npm run lint -- --fix (ESLint)
+npm run type-check (tsc --noEmit)
+npm run test (unit + integration)
+npm audit + npm audit fix (chỉ fix an toàn; nếu unsafe => tạo PR và báo cáo)
+Static security scan (gợi ý: snyk — nếu dùng, so sánh kết quả)
+Bundle analysis (next-bundle-analyzer)
+Hành vi AI: Nếu lỗi có thể auto-fix (lint, minor type), AI thực hiện fix, commit patch (hoặc xuất diff) và chạy lại build. Với dependency vulnerabilities không auto-fixable, AI liệt kê CVE, recommend phiên bản và tạo PR draft hoặc hướng dẫn fix thủ công.
+Báo cáo cuối (report.md): pass/fail từng bước, file đã chỉnh (diff), lỗi còn tồn + cách fix tay, các lệnh reproduce trên macOS.
+8) Export Excel & password — kỹ thuật (yêu cầu chi tiết)
+Options để implement (liệt kê ít nhất 2 & chọn approach):
+exceljs / xlsx (SheetJS) để tạo XLSX; nếu thư viện không hỗ trợ password, sau khi tạo -> zip AES-256 (7zip / archiver + 7zip-bin) với password "197781".
+Nếu serverless environment (Vercel): generate file in-memory/stream, zip in-memory, trả file URL/stream; lưu tạm chỉ nếu cần, tránh long-lived files.
+Endpoint server-side phải kiểm tra quyền trước khi generate.
+9) Hiệu năng, scaling & safety
+Index các cột filterable (principal_amount, status_chuoc, created_at).
+Dùng cursor-based pagination cho performance.
+API stateless để horizontal scale; connection pooling cho DB.
+Audit logs, role-based access, input validation, prepared statements/ORM.
+10) Nghiệm thu, test cases & metrics
+Double-click toggle: UI change + DB persisted + rollback test.
+Tìm kiếm tiền: exact, range, zero-results.
+Xóa bằng right-click + modal + audit log verification.
+Export: file không mở nếu không có mật khẩu 197781.
+Performance: với 50k+ bản ghi, trang đầu load < 500ms cho queries đã index (thực nghiệm).
+Responsive: kiểm tra breakpoints cho mobile/tablet/desktop.
+Permissions: user không có quyền export/xóa không thể thực hiện.
+11) Deliverables (khi AI trả về)
+Yêu cầu AI trả về (Tiếng Việt):
+Bản phân tích hiện trạng + điểm cần refactor (README kỹ thuật).
+SQL schema & migration scripts (Postgres).
+OpenAPI (YAML/JSON) cho API.
+Wireframes (min 4 view — desktop + mobile) và component list.
+Skeleton repo structure (no Python) — tree layout & sample files; package.json scripts; vercel.json, next.config.js.
+CI workflow (.github/workflows/ci.yml) chạy lint/type/test/build + deploy to Vercel.
+Script & hướng dẫn cho macOS (cài nvm, node, pnpm/yarn, env vars .env.local).
+Post-build scan & fix report (report.md) — logs, diffs, remaining issues.
+Hướng dẫn export Excel có password + code snippets Node.js (in-memory generation + zip with password).
+Test plan & test scripts (unit + integration) và checklist nghiệm thu.
+Danh sách thư viện đề xuất cho: frontend, backend, DB, ORM, Excel-export (ít nhất 2 lựa chọn mỗi chức năng) kèm pros/cons.
+Nếu AI thực hiện sửa code: commit list + patch/diff + PR description.
+12) Hướng dẫn khi trả kết quả (format kỳ vọng)
+Khi trả, AI hãy:
+Trả tóm tắt ngắn (status: success/partial/fail).
+Đính kèm report.md (kết quả build & scan).
+Cung cấp schema SQL và OpenAPI mẫu.
+Đính kèm wireframes (PNG/SVG hoặc ASCII nếu không thể).
+Nếu sửa code: đính kèm diffs/patches hoặc link commit/PR.
+Nêu rõ các lỗi không sửa được + cách fix thủ công.
+Nếu cần credentials (Vercel token / DB connection) để deploy, chỉ yêu cầu 1 lần và hướng dẫn cách thêm secrets trên Vercel/GitHub; không yêu cầu paste mật khẩu công khai trong chat.
+13) Gợi ý stack (ưu tiên & lý do)
+Ưu tiên: Next.js (TypeScript) + Prisma + PostgreSQL + Vercel — nhanh dev, serverless-friendly, Prisma hoạt động tốt với Vercel.
+Excel export: exceljs hoặc xlsx (SheetJS) + 7zip-bin/archiver cho password-zip.
+Alternatives: NestJS (Node) backend riêng nếu cần service lớn; Java/C#/Go nếu team yêu cầu tính concurrency/typed enterprise.
+Kết thúc prompt
+Hãy trả về (bắt buộc):
+1) Phân tích hiện trạng + 3–5 điểm cần refactor; 2) SQL schema & migration script mẫu; 3) OpenAPI yml mẫu; 4) Wireframes (4 view min); 5) Skeleton repo structure (không có Python); 6) Kế hoạch migration & test cases; 7) Danh sách thư viện đề xuất cho export Excel có password (ít nhất 2).
