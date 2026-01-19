@@ -33,28 +33,53 @@ export async function PATCH(
 
   const before = await prisma.loan.findFirst({
     where: { id: ctx.params.id, deletedAt: null },
-    select: { id: true, statusChuoc: true }
+    select: { id: true }
   });
   if (!before) {
     return jsonError(404, { code: "NOT_FOUND", message: "Không tìm thấy phiếu" });
   }
 
-  const loan = await prisma.loan.update({
-    where: { id: ctx.params.id },
-    data: { statusChuoc: parsed.data.status },
-    select: { id: true, statusChuoc: true }
+  const items = await prisma.loanItem.findMany({
+    where: { loanId: ctx.params.id },
+    select: { id: true, isRedeemed: true }
   });
+  const shouldRedeem =
+    parsed.data.status === "DA_CHUOC"
+      ? true
+      : items.some((it) => !it.isRedeemed);
+
+  await prisma.loanItem.updateMany({
+    where: { loanId: ctx.params.id },
+    data: {
+      isRedeemed: shouldRedeem,
+      redeemedAt: shouldRedeem ? new Date() : null
+    }
+  });
+
+  const itemCount = items.length;
+  const redeemedCount = shouldRedeem ? itemCount : 0;
 
   await writeAuditLog({
     user: bypass ? null : user,
-    action: "LOAN_STATUS_TOGGLE",
-    targetTable: "loans",
-    targetId: loan.id,
-    details: { before, after: loan }
+    action: "PAWN_TOGGLE_REDEEM",
+    targetTable: "pawn_items",
+    targetId: ctx.params.id,
+    details: { before, status: parsed.data.status, itemCount, redeemedCount }
   });
 
-  return new Response(JSON.stringify({ loan }), {
+  return new Response(
+    JSON.stringify({
+      loan: {
+        id: ctx.params.id,
+        statusChuoc:
+          itemCount > 0 && redeemedCount >= itemCount ? "DA_CHUOC" : "CHUA_CHUOC",
+        itemCount,
+        redeemedCount
+      }
+    }),
+    {
     status: 200,
     headers: { "content-type": "application/json" }
-  });
+    }
+  );
 }

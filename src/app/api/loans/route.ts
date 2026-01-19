@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 
-import { jsonError } from "@/lib/api";
+import { jsonError, normalizeSearchText } from "@/lib/api";
 import { canEdit, getUserFromNextRequest } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit";
@@ -15,11 +16,10 @@ export async function GET(req: NextRequest) {
   }
 
   const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
-  const status = req.nextUrl.searchParams.get("status")?.trim() ?? "";
-
-  const amount = req.nextUrl.searchParams.get("amount");
-  const amountMin = req.nextUrl.searchParams.get("amount_min");
-  const amountMax = req.nextUrl.searchParams.get("amount_max");
+  const searchField =
+    req.nextUrl.searchParams.get("search_field")?.trim().toLowerCase() ?? "name";
+  const dateFrom = req.nextUrl.searchParams.get("date_from")?.trim() ?? "";
+  const dateTo = req.nextUrl.searchParams.get("date_to")?.trim() ?? "";
 
   const pageSize = Math.min(
     Math.max(Number(req.nextUrl.searchParams.get("page_size") ?? "20") || 20, 1),
@@ -28,63 +28,99 @@ export async function GET(req: NextRequest) {
   const page = Math.max(Number(req.nextUrl.searchParams.get("page") ?? "1") || 1, 1);
   const skip = (page - 1) * pageSize;
 
-  type LoanWhere = NonNullable<Parameters<typeof prisma.loan.findMany>[0]>["where"];
-  const where: LoanWhere = {
+  const where: Prisma.LoanWhereInput = {
     deletedAt: null
   };
 
-  if (q) {
-    const or: NonNullable<typeof where.OR> = [
-      { customerName: { contains: q, mode: "insensitive" } },
-      { notes: { contains: q, mode: "insensitive" } }
-    ];
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(q)) {
-      or.push({ id: q });
+  if (dateFrom || dateTo) {
+    const dateFilter: Prisma.DateTimeFilter = {};
+    if (dateFrom) {
+      const parsed = new Date(dateFrom);
+      if (!Number.isNaN(parsed.getTime())) {
+        dateFilter.gte = parsed;
+      }
     }
-    where.OR = or;
+    if (dateTo) {
+      const parsed = new Date(dateTo);
+      if (!Number.isNaN(parsed.getTime())) {
+        dateFilter.lte = parsed;
+      }
+    }
+    if (Object.keys(dateFilter).length > 0) {
+      where.datePawn = dateFilter;
+    }
   }
 
-  if (status === "CHUA_CHUOC" || status === "DA_CHUOC") {
-    where.statusChuoc = status;
-  }
-
-  const amountNumber = amount ? Number(amount) : null;
-  const minNumber = amountMin ? Number(amountMin) : null;
-  const maxNumber = amountMax ? Number(amountMax) : null;
-
-  if (amountNumber !== null && Number.isFinite(amountNumber)) {
-    where.principalAmount = amountNumber;
-  } else if (
-    (minNumber !== null && Number.isFinite(minNumber)) ||
-    (maxNumber !== null && Number.isFinite(maxNumber))
-  ) {
-    where.principalAmount = {
-      ...(minNumber !== null && Number.isFinite(minNumber) ? { gte: minNumber } : {}),
-      ...(maxNumber !== null && Number.isFinite(maxNumber) ? { lte: maxNumber } : {})
-    };
+  if (q) {
+    const normalized = normalizeSearchText(q);
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(q)) {
+      where.id = q;
+    } else if (searchField === "cccd") {
+      where.cccd = { contains: q, mode: "insensitive" };
+    } else if (searchField === "item") {
+      where.items = {
+        some: {
+          itemNameSearch: { contains: normalized, mode: "insensitive" }
+        }
+      };
+    } else if (searchField === "amount") {
+      const raw = q.toLowerCase().replace(/[, ]/g, "");
+      let amount = Number(raw);
+      if (!Number.isFinite(amount)) {
+        if (raw.endsWith("k")) {
+          amount = Number(raw.slice(0, -1)) * 1000;
+        } else if (raw.endsWith("m")) {
+          amount = Number(raw.slice(0, -1)) * 1_000_000;
+        }
+      }
+      if (Number.isFinite(amount)) {
+        where.totalAmountVnd = amount;
+      }
+    } else {
+      where.customerNameSearch = { contains: normalized, mode: "insensitive" };
+    }
   }
 
   const [total, loans] = await Promise.all([
     prisma.loan.count({ where }),
     prisma.loan.findMany({
       where,
-      orderBy: [{ createdAt: "desc" }],
+      orderBy: [{ datePawn: "desc" }, { createdAt: "desc" }],
       take: pageSize,
       skip,
       include: {
-        items: {
-          include: { item: true }
-        }
+        items: true
       }
     })
   ]);
+
+  const mapped = loans.map((loan) => {
+    const itemCount = loan.items.length;
+    const redeemedCount = loan.items.filter((it) => it.isRedeemed).length;
+    const itemsSummary = loan.items
+      .map(
+        (it) =>
+          `${it.qty}x${it.itemName}(${String(it.weightChi)} Chỉ)`
+      )
+      .join("; ");
+    return {
+      ...loan,
+      itemCount,
+      redeemedCount,
+      itemsSummary,
+      statusChuoc:
+        itemCount > 0 && redeemedCount >= itemCount ? "DA_CHUOC" : "CHUA_CHUOC"
+    };
+  });
 
   return new Response(
     JSON.stringify({
       page,
       page_size: pageSize,
       total,
-      loans
+      loans: mapped
     }),
     {
       status: 200,
@@ -113,7 +149,14 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const dueDate = parsed.data.dueDate ? new Date(parsed.data.dueDate) : null;
+  const datePawn = new Date(parsed.data.datePawn);
+  if (Number.isNaN(datePawn.getTime())) {
+    return jsonError(400, {
+      code: "BAD_REQUEST",
+      message: "Ngày cầm không hợp lệ"
+    });
+  }
+  const customerNameSearch = normalizeSearchText(parsed.data.customerName);
 
   type TxClient = Parameters<typeof prisma.$transaction>[0] extends (
     tx: infer Tx
@@ -125,52 +168,46 @@ export async function POST(req: NextRequest) {
     const created = await tx.loan.create({
       data: {
         customerName: parsed.data.customerName,
-        principalAmount: parsed.data.principalAmount,
-        dueDate,
-        notes: parsed.data.notes ?? null,
+        customerNameSearch,
+        cccd: parsed.data.cccd,
+        recordNote: parsed.data.recordNote ?? "",
+        totalAmountVnd: parsed.data.totalAmountVnd,
+        datePawn,
         createdById: bypass ? null : user.id
       }
     });
 
     const items = parsed.data.items ?? [];
     for (const row of items) {
-      let itemId = row.itemId ?? null;
-      if (!itemId && row.name) {
-        const newItem = await tx.item.create({
-          data: {
-            code: row.code ?? null,
-            name: row.name,
-            unit: row.unit ?? null,
-            description: row.description ?? null,
-            price: row.price ?? null,
-            barcode: row.barcode ?? null
-          }
-        });
-        itemId = newItem.id;
-      }
-
+      const itemNameSearch = normalizeSearchText(row.itemName);
       await tx.loanItem.create({
         data: {
           loanId: created.id,
-          itemId,
-          quantity: row.quantity ?? null,
-          note: row.note ?? null
+          qty: row.qty,
+          itemName: row.itemName,
+          itemNameSearch,
+          weightChi: row.weightChi,
+          note: row.note ?? ""
         }
       });
     }
 
     return await tx.loan.findUniqueOrThrow({
       where: { id: created.id },
-      include: { items: { include: { item: true } } }
+      include: { items: true }
     });
   });
 
   await writeAuditLog({
     user: bypass ? null : user,
-    action: "LOAN_CREATE",
-    targetTable: "loans",
+    action: "PAWN_CREATE",
+    targetTable: "pawn_records",
     targetId: loan.id,
-    details: { principalAmount: loan.principalAmount, customerName: loan.customerName }
+    details: {
+      totalAmountVnd: loan.totalAmountVnd,
+      customerName: loan.customerName,
+      cccd: loan.cccd
+    }
   });
 
   return new Response(JSON.stringify({ loan }), {

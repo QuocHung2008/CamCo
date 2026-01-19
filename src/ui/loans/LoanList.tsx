@@ -13,10 +13,11 @@ type Loan = {
   id: string;
   createdAt: string;
   customerName: string;
-  principalAmount: string;
+  cccd: string;
+  totalAmountVnd: string;
+  datePawn: string;
+  recordNote: string;
   statusChuoc: "CHUA_CHUOC" | "DA_CHUOC";
-  dueDate: string | null;
-  notes: string | null;
 };
 
 type LoansResponse = {
@@ -36,10 +37,9 @@ export function LoanList(props: {
   permissions: { canEdit: boolean; canDelete: boolean; canExport: boolean };
 }) {
   const [q, setQ] = useState("");
-  const [amount, setAmount] = useState<string>("");
-  const [amountMin, setAmountMin] = useState<string>("");
-  const [amountMax, setAmountMax] = useState<string>("");
-  const [status, setStatus] = useState<string>("");
+  const [searchField, setSearchField] = useState<string>("name");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const [page, setPage] = useState(1);
 
   const [loading, setLoading] = useState(false);
@@ -62,14 +62,13 @@ export function LoanList(props: {
   const queryString = useMemo(() => {
     const sp = new URLSearchParams();
     if (q.trim()) sp.set("q", q.trim());
-    if (status) sp.set("status", status);
-    if (amount.trim()) sp.set("amount", amount.trim());
-    if (amountMin.trim()) sp.set("amount_min", amountMin.trim());
-    if (amountMax.trim()) sp.set("amount_max", amountMax.trim());
+    if (searchField) sp.set("search_field", searchField);
+    if (dateFrom.trim()) sp.set("date_from", dateFrom.trim());
+    if (dateTo.trim()) sp.set("date_to", dateTo.trim());
     sp.set("page", String(page));
     sp.set("page_size", "20");
     return sp.toString();
-  }, [amount, amountMax, amountMin, page, q, status]);
+  }, [dateFrom, dateTo, page, q, searchField]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -159,10 +158,9 @@ export function LoanList(props: {
     try {
       const payload = {
         q: q.trim() || null,
-        amount: amount.trim() ? Number(amount.trim()) : null,
-        amount_min: amountMin.trim() ? Number(amountMin.trim()) : null,
-        amount_max: amountMax.trim() ? Number(amountMax.trim()) : null,
-        status: status || null
+        search_field: searchField || null,
+        date_from: dateFrom.trim() || null,
+        date_to: dateTo.trim() || null
       };
       const res = await fetch("/api/export?type=xlsx", {
         method: "POST",
@@ -193,7 +191,7 @@ export function LoanList(props: {
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           <label className="block">
             <div className="text-xs font-medium text-slate-600">Tìm kiếm</div>
             <input
@@ -203,62 +201,48 @@ export function LoanList(props: {
                 setQ(e.target.value);
                 setPage(1);
               }}
-              placeholder="Tên khách / ghi chú / id"
+              placeholder="Nhập từ khóa..."
             />
           </label>
           <label className="block">
-            <div className="text-xs font-medium text-slate-600">Số tiền (exact)</div>
-            <input
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-              value={amount}
-              onChange={(e) => {
-                setAmount(e.target.value);
-                setPage(1);
-              }}
-              inputMode="numeric"
-              placeholder="VD: 5000000"
-            />
-          </label>
-          <label className="block">
-            <div className="text-xs font-medium text-slate-600">Min</div>
-            <input
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-              value={amountMin}
-              onChange={(e) => {
-                setAmountMin(e.target.value);
-                setPage(1);
-              }}
-              inputMode="numeric"
-              placeholder="VD: 1000000"
-            />
-          </label>
-          <label className="block">
-            <div className="text-xs font-medium text-slate-600">Max</div>
-            <input
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-              value={amountMax}
-              onChange={(e) => {
-                setAmountMax(e.target.value);
-                setPage(1);
-              }}
-              inputMode="numeric"
-              placeholder="VD: 10000000"
-            />
-          </label>
-          <label className="block">
-            <div className="text-xs font-medium text-slate-600">Trạng thái</div>
+            <div className="text-xs font-medium text-slate-600">Tìm theo</div>
             <select
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-              value={status}
+              value={searchField}
               onChange={(e) => {
-                setStatus(e.target.value);
+                setSearchField(e.target.value);
                 setPage(1);
               }}
             >
-              <option value="">Tất cả</option>
-              <option value="CHUA_CHUOC">Chưa Chuộc</option>
-              <option value="DA_CHUOC">Đã Chuộc</option>
+              <option value="name">Tên khách</option>
+              <option value="cccd">CCCD</option>
+              <option value="item">Món hàng</option>
+              <option value="amount">Số tiền</option>
             </select>
+          </label>
+          <label className="block">
+            <div className="text-xs font-medium text-slate-600">Từ ngày</div>
+            <input
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setPage(1);
+              }}
+              type="date"
+            />
+          </label>
+          <label className="block">
+            <div className="text-xs font-medium text-slate-600">Đến ngày</div>
+            <input
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setPage(1);
+              }}
+              type="date"
+            />
           </label>
         </div>
 
@@ -294,7 +278,7 @@ export function LoanList(props: {
                 <th className="px-3 py-2 text-left">Khách</th>
                 <th className="px-3 py-2 text-right">Số tiền</th>
                 <th className="px-3 py-2 text-left">Trạng thái chuộc</th>
-                <th className="px-3 py-2 text-left">Ngày hẹn</th>
+                <th className="px-3 py-2 text-left">Ngày cầm</th>
               </tr>
             </thead>
             <tbody>
@@ -312,7 +296,7 @@ export function LoanList(props: {
                   </td>
                   <td className="px-3 py-2">{loan.customerName}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {formatMoney(loan.principalAmount)}
+                    {formatMoney(loan.totalAmountVnd)}
                   </td>
                   <td className="px-3 py-2">
                     <LoanStatusCell
@@ -322,7 +306,7 @@ export function LoanList(props: {
                     />
                   </td>
                   <td className="px-3 py-2">
-                    {loan.dueDate ? loan.dueDate.slice(0, 10) : ""}
+                    {loan.datePawn ? loan.datePawn.slice(0, 10) : ""}
                   </td>
                 </tr>
               ))}
@@ -381,7 +365,7 @@ export function LoanList(props: {
         description={
           confirmDelete.loan
             ? `ID: ${confirmDelete.loan.id}\nKhách: ${confirmDelete.loan.customerName}\nSố tiền: ${formatMoney(
-                confirmDelete.loan.principalAmount
+                confirmDelete.loan.totalAmountVnd
               )}`
             : undefined
         }

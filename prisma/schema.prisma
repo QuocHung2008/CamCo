@@ -13,11 +13,6 @@ enum Role {
   VIEWER
 }
 
-enum ChuocStatus {
-  CHUA_CHUOC
-  DA_CHUOC
-}
-
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   username     String   @unique
@@ -33,53 +28,55 @@ model User {
 
 model Item {
   id          String   @id @default(uuid()) @db.Uuid
-  code        String?  @unique
-  name        String
-  unit        String?
-  description String?
-  price       Decimal? @db.Decimal(18, 2)
-  barcode     String?
+  itemName    String   @map("item_name")
+  defaultWeightChi Decimal @map("default_weight_chi") @db.Decimal(10, 2)
+  note        String   @default("")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  loanItems LoanItem[]
-
-  @@map("items")
+  @@index([itemName], map: "ix_pawn_catalog_item_name")
+  @@map("pawn_catalog")
 }
 
 model Loan {
-  id              String       @id @default(uuid()) @db.Uuid
-  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  customerName    String       @map("customer_name")
-  principalAmount Decimal      @map("principal_amount") @db.Decimal(18, 2)
-  statusChuoc     ChuocStatus  @default(CHUA_CHUOC) @map("status_chuoc")
-  dueDate         DateTime?    @map("due_date") @db.Date
-  notes           String?
-  createdById     String?      @map("created_by") @db.Uuid
-  deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  id                 String   @id @default(uuid()) @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  customerName       String   @map("customer_name")
+  customerNameSearch String   @default("") @map("customer_name_search")
+  cccd               String
+  recordNote         String   @default("") @map("note")
+  totalAmountVnd     Decimal  @map("total_amount_vnd") @db.Decimal(18, 2)
+  datePawn           DateTime @map("date_pawn") @db.Date
+  createdById        String?  @map("created_by") @db.Uuid
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   createdBy User?       @relation("LoanCreatedBy", fields: [createdById], references: [id])
   items     LoanItem[]
 
-  @@index([principalAmount], map: "idx_loans_principal")
-  @@index([statusChuoc], map: "idx_loans_status")
-  @@index([createdAt], map: "idx_loans_created_at")
-  @@map("loans")
+  @@index([datePawn], map: "ix_pawn_records_date_pawn")
+  @@index([customerName], map: "ix_pawn_records_customer_name")
+  @@index([customerNameSearch], map: "ix_pawn_records_customer_name_search")
+  @@index([cccd], map: "ix_pawn_records_cccd")
+  @@index([totalAmountVnd], map: "ix_pawn_records_total_amount_vnd")
+  @@map("pawn_records")
 }
 
 model LoanItem {
-  id       String  @id @default(uuid()) @db.Uuid
-  loanId   String  @map("loan_id") @db.Uuid
-  itemId   String? @map("item_id") @db.Uuid
-  quantity Int?
-  note     String?
+  id            String   @id @default(uuid()) @db.Uuid
+  loanId        String   @map("record_id") @db.Uuid
+  qty           Int      @map("qty")
+  itemName      String   @map("item_name")
+  itemNameSearch String  @default("") @map("item_name_search")
+  weightChi     Decimal  @map("weight_chi") @db.Decimal(10, 2)
+  note          String   @default("")
+  isRedeemed    Boolean  @default(false) @map("is_redeemed")
+  redeemedAt    DateTime? @map("redeemed_at") @db.Timestamptz(6)
 
   loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
-  item Item? @relation(fields: [itemId], references: [id], onDelete: SetNull)
 
-  @@index([loanId], map: "idx_loan_items_loan_id")
-  @@index([itemId], map: "idx_loan_items_item_id")
-  @@map("loan_items")
+  @@index([loanId], map: "ix_pawn_items_record_id")
+  @@index([itemNameSearch], map: "ix_pawn_items_item_name_search")
+  @@index([isRedeemed], map: "ix_pawn_items_is_redeemed")
+  @@map("pawn_items")
 }
 
 model AuditLog {

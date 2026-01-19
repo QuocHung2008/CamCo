@@ -38,19 +38,16 @@ export async function PATCH(
   const item = await prisma.item.update({
     where: { id: ctx.params.id },
     data: {
-      code: parsed.data.code ?? undefined,
-      name: parsed.data.name ?? undefined,
-      unit: parsed.data.unit ?? undefined,
-      description: parsed.data.description ?? undefined,
-      price: parsed.data.price ?? undefined,
-      barcode: parsed.data.barcode ?? undefined
+      itemName: parsed.data.itemName ?? undefined,
+      defaultWeightChi: parsed.data.defaultWeightChi ?? undefined,
+      note: parsed.data.note ?? undefined
     }
   });
 
   await writeAuditLog({
     user: bypass ? null : user,
-    action: "ITEM_UPDATE",
-    targetTable: "items",
+    action: "CATALOG_UPDATE",
+    targetTable: "pawn_catalog",
     targetId: item.id,
     details: { before, after: item }
   });
@@ -82,8 +79,8 @@ export async function DELETE(
 
   await writeAuditLog({
     user: bypass ? null : user,
-    action: "ITEM_DELETE",
-    targetTable: "items",
+    action: "CATALOG_DELETE",
+    targetTable: "pawn_catalog",
     targetId: ctx.params.id,
     details: { before }
   });

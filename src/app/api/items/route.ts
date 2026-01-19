@@ -21,16 +21,8 @@ export async function GET(req: NextRequest) {
   );
 
   const items = await prisma.item.findMany({
-    where: q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { code: { contains: q, mode: "insensitive" } },
-            { barcode: { contains: q, mode: "insensitive" } }
-          ]
-        }
-      : undefined,
-    orderBy: [{ createdAt: "desc" }],
+    where: q ? { itemName: { contains: q, mode: "insensitive" } } : undefined,
+    orderBy: [{ itemName: "asc" }, { createdAt: "desc" }],
     take: limit
   });
 
@@ -62,21 +54,18 @@ export async function POST(req: NextRequest) {
 
   const item = await prisma.item.create({
     data: {
-      code: parsed.data.code ?? null,
-      name: parsed.data.name,
-      unit: parsed.data.unit ?? null,
-      description: parsed.data.description ?? null,
-      price: parsed.data.price ?? null,
-      barcode: parsed.data.barcode ?? null
+      itemName: parsed.data.itemName,
+      defaultWeightChi: parsed.data.defaultWeightChi,
+      note: parsed.data.note ?? ""
     }
   });
 
   await writeAuditLog({
     user: bypass ? null : user,
-    action: "ITEM_CREATE",
-    targetTable: "items",
+    action: "CATALOG_CREATE",
+    targetTable: "pawn_catalog",
     targetId: item.id,
-    details: { name: item.name, code: item.code, barcode: item.barcode }
+    details: { itemName: item.itemName, defaultWeightChi: item.defaultWeightChi }
   });
 
   return new Response(JSON.stringify({ item }), {

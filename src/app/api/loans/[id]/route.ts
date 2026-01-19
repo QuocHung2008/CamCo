@@ -18,7 +18,7 @@ export async function GET(
 
   const loan = await prisma.loan.findFirst({
     where: { id: ctx.params.id, deletedAt: null },
-    include: { items: { include: { item: true } } }
+    include: { items: true }
   });
   if (!loan) {
     return jsonError(404, { code: "NOT_FOUND", message: "Không tìm thấy phiếu" });
@@ -49,9 +49,10 @@ export async function DELETE(
     select: {
       id: true,
       customerName: true,
-      principalAmount: true,
+      cccd: true,
+      totalAmountVnd: true,
       deletedAt: true,
-      statusChuoc: true
+      datePawn: true
     }
   });
   if (!before || before.deletedAt) {
@@ -69,8 +70,8 @@ export async function DELETE(
 
   await writeAuditLog({
     user: bypass ? null : user,
-    action: "LOAN_DELETE",
-    targetTable: "loans",
+    action: "PAWN_DELETE",
+    targetTable: "pawn_records",
     targetId: ctx.params.id,
     details: {
       mode,

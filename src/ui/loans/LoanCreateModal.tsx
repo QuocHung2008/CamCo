@@ -6,27 +6,27 @@ import { Plus, Trash2, X } from "lucide-react";
 
 type Item = {
   id: string;
-  name: string;
-  code: string | null;
-  unit: string | null;
-  barcode: string | null;
+  itemName: string;
+  defaultWeightChi: string;
+  note: string;
 };
 
 type Loan = {
   id: string;
   createdAt: string;
   customerName: string;
-  principalAmount: string;
+  cccd: string;
+  totalAmountVnd: string;
+  datePawn: string;
+  recordNote: string;
   statusChuoc: "CHUA_CHUOC" | "DA_CHUOC";
-  dueDate: string | null;
-  notes: string | null;
 };
 
 type ItemRow = {
   mode: "catalog" | "inline";
-  itemId?: string;
-  name?: string;
-  quantity?: number;
+  itemName?: string;
+  qty?: number;
+  weightChi?: string;
   note?: string;
   q: string;
   suggestions: Item[];
@@ -38,24 +38,31 @@ export function LoanCreateModal(props: {
   onCreated: (loan: Loan) => void;
 }) {
   const [customerName, setCustomerName] = useState("");
-  const [principalAmount, setPrincipalAmount] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [notes, setNotes] = useState("");
+  const [cccd, setCccd] = useState("");
+  const [totalAmountVnd, setTotalAmountVnd] = useState("");
+  const [datePawn, setDatePawn] = useState("");
+  const [recordNote, setRecordNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [rows, setRows] = useState<ItemRow[]>([]);
 
   useEffect(() => {
     if (!props.open) return;
     setCustomerName("");
-    setPrincipalAmount("");
-    setDueDate("");
-    setNotes("");
+    setCccd("");
+    setTotalAmountVnd("");
+    setDatePawn("");
+    setRecordNote("");
     setRows([]);
   }, [props.open]);
 
   const canSave = useMemo(() => {
-    return customerName.trim().length > 0 && principalAmount.trim().length > 0;
-  }, [customerName, principalAmount]);
+    return (
+      customerName.trim().length > 0 &&
+      cccd.trim().length > 0 &&
+      totalAmountVnd.trim().length > 0 &&
+      datePawn.trim().length > 0
+    );
+  }, [cccd, customerName, datePawn, totalAmountVnd]);
 
   async function searchItems(rowIndex: number, q: string) {
     const res = await fetch(`/api/items?q=${encodeURIComponent(q)}&limit=10`);
@@ -73,15 +80,37 @@ export function LoanCreateModal(props: {
     if (!canSave) return;
     setSaving(true);
     try {
+      const amount = Number(totalAmountVnd);
+      if (!Number.isFinite(amount) || amount < 0) {
+        throw new Error("Số tiền không hợp lệ");
+      }
+
+      const rowsToSave = rows.filter((row) => {
+        const name = (row.itemName ?? "").trim();
+        const weight = (row.weightChi ?? "").trim();
+        const note = (row.note ?? "").trim();
+        return name || weight || note;
+      });
+
+      for (const row of rowsToSave) {
+        const name = (row.itemName ?? "").trim();
+        const weight = Number(row.weightChi ?? "");
+        const qty = row.qty ?? 1;
+        if (!name || !Number.isFinite(weight) || weight < 0 || qty <= 0) {
+          throw new Error("Thông tin hàng cầm chưa hợp lệ");
+        }
+      }
+
       const payload = {
         customerName: customerName.trim(),
-        principalAmount: Number(principalAmount),
-        dueDate: dueDate ? new Date(dueDate).toISOString() : null,
-        notes: notes.trim() ? notes.trim() : null,
-        items: rows.map((r) => ({
-          itemId: r.mode === "catalog" ? r.itemId ?? null : null,
-          name: r.mode === "inline" ? (r.name ?? "").trim() : null,
-          quantity: r.quantity ?? 1,
+        cccd: cccd.trim(),
+        totalAmountVnd: amount,
+        datePawn,
+        recordNote: recordNote.trim() ? recordNote.trim() : null,
+        items: rowsToSave.map((r) => ({
+          qty: r.qty ?? 1,
+          itemName: (r.itemName ?? "").trim(),
+          weightChi: Number(r.weightChi ?? ""),
           note: r.note ?? null
         }))
       };
@@ -129,8 +158,8 @@ export function LoanCreateModal(props: {
         </div>
 
         <form onSubmit={onSubmit} className="mt-3 space-y-3">
-          <div className="grid gap-2 md:grid-cols-3">
-            <label className="block md:col-span-2">
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className="block">
               <div className="text-xs font-medium text-slate-600">Khách hàng</div>
               <input
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
@@ -140,30 +169,40 @@ export function LoanCreateModal(props: {
               />
             </label>
             <label className="block">
+              <div className="text-xs font-medium text-slate-600">CCCD</div>
+              <input
+                className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+                value={cccd}
+                onChange={(e) => setCccd(e.target.value)}
+                required
+              />
+            </label>
+            <label className="block">
               <div className="text-xs font-medium text-slate-600">Số tiền</div>
               <input
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={principalAmount}
-                onChange={(e) => setPrincipalAmount(e.target.value)}
+                value={totalAmountVnd}
+                onChange={(e) => setTotalAmountVnd(e.target.value)}
                 inputMode="numeric"
                 required
               />
             </label>
             <label className="block">
-              <div className="text-xs font-medium text-slate-600">Ngày hẹn</div>
+              <div className="text-xs font-medium text-slate-600">Ngày cầm</div>
               <input
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                value={datePawn}
+                onChange={(e) => setDatePawn(e.target.value)}
                 type="date"
+                required
               />
             </label>
             <label className="block md:col-span-2">
               <div className="text-xs font-medium text-slate-600">Ghi chú</div>
               <input
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                value={recordNote}
+                onChange={(e) => setRecordNote(e.target.value)}
               />
             </label>
           </div>
@@ -177,7 +216,13 @@ export function LoanCreateModal(props: {
                   onClick={() =>
                     setRows((prev) => [
                       ...prev,
-                      { mode: "catalog", q: "", suggestions: [], quantity: 1 }
+                      {
+                        mode: "catalog",
+                        q: "",
+                        suggestions: [],
+                        qty: 1,
+                        weightChi: ""
+                      }
                     ])
                   }
                   className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs font-medium hover:bg-slate-50"
@@ -190,7 +235,7 @@ export function LoanCreateModal(props: {
                   onClick={() =>
                     setRows((prev) => [
                       ...prev,
-                      { mode: "inline", q: "", suggestions: [], quantity: 1 }
+                      { mode: "inline", q: "", suggestions: [], qty: 1, weightChi: "" }
                     ])
                   }
                   className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs font-medium hover:bg-slate-50"
@@ -225,7 +270,7 @@ export function LoanCreateModal(props: {
                             );
                             if (val.trim()) searchItems(idx, val);
                           }}
-                          placeholder="Tìm theo tên / mã / barcode"
+                          placeholder="Tìm theo tên"
                         />
                         {row.suggestions.length ? (
                           <div className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg">
@@ -240,10 +285,11 @@ export function LoanCreateModal(props: {
                                       i === idx
                                         ? {
                                             ...r,
-                                            itemId: it.id,
-                                            q: `${it.name}${
-                                              it.code ? ` (${it.code})` : ""
-                                            }`,
+                                            itemName: it.itemName,
+                                            q: it.itemName,
+                                            weightChi: String(
+                                              it.defaultWeightChi ?? ""
+                                            ),
                                             suggestions: []
                                           }
                                         : r
@@ -251,10 +297,11 @@ export function LoanCreateModal(props: {
                                   );
                                 }}
                               >
-                                <div className="font-medium">{it.name}</div>
+                                <div className="font-medium">{it.itemName}</div>
                                 <div className="text-xs text-slate-500">
-                                  {it.code ?? ""}{" "}
-                                  {it.barcode ? `· ${it.barcode}` : ""}
+                                  {it.defaultWeightChi
+                                    ? `${it.defaultWeightChi} Chỉ`
+                                    : ""}
                                 </div>
                               </button>
                             ))}
@@ -264,12 +311,12 @@ export function LoanCreateModal(props: {
                     ) : (
                       <input
                         className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                        value={row.name ?? ""}
+                        value={row.itemName ?? ""}
                         onChange={(e) => {
                           const val = e.target.value;
                           setRows((prev) =>
                             prev.map((r, i) =>
-                              i === idx ? { ...r, name: val } : r
+                              i === idx ? { ...r, itemName: val } : r
                             )
                           );
                         }}
@@ -282,16 +329,35 @@ export function LoanCreateModal(props: {
                     <div className="text-xs font-medium text-slate-600">SL</div>
                     <input
                       className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                      value={String(row.quantity ?? 1)}
+                      value={String(row.qty ?? 1)}
                       onChange={(e) => {
                         const val = Number(e.target.value);
                         setRows((prev) =>
                           prev.map((r, i) =>
-                            i === idx ? { ...r, quantity: val } : r
+                            i === idx ? { ...r, qty: val } : r
                           )
                         );
                       }}
                       inputMode="numeric"
+                    />
+                  </div>
+
+                  <div className="md:col-span-3">
+                    <div className="text-xs font-medium text-slate-600">
+                      Trọng lượng (Chỉ)
+                    </div>
+                    <input
+                      className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+                      value={row.weightChi ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setRows((prev) =>
+                          prev.map((r, i) =>
+                            i === idx ? { ...r, weightChi: val } : r
+                          )
+                        );
+                      }}
+                      inputMode="decimal"
                     />
                   </div>
 
@@ -354,4 +420,3 @@ export function LoanCreateModal(props: {
     </div>
   );
 }
-

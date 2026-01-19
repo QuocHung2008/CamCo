@@ -6,12 +6,9 @@ import { Plus, Trash2, Save, X } from "lucide-react";
 
 type Item = {
   id: string;
-  code: string | null;
-  name: string;
-  unit: string | null;
-  description: string | null;
-  price: string | null;
-  barcode: string | null;
+  itemName: string;
+  defaultWeightChi: string;
+  note: string;
 };
 
 function toNumberOrNull(v: string) {
@@ -26,12 +23,9 @@ export function ItemCatalog(props: { canEdit: boolean }) {
 
   const [editing, setEditing] = useState<Item | null>(null);
   const [form, setForm] = useState({
-    code: "",
-    name: "",
-    unit: "",
-    description: "",
-    price: "",
-    barcode: ""
+    itemName: "",
+    defaultWeightChi: "",
+    note: ""
   });
 
   const queryString = useMemo(() => {
@@ -71,51 +65,44 @@ export function ItemCatalog(props: { canEdit: boolean }) {
   function startCreate() {
     setEditing({
       id: "",
-      code: null,
-      name: "",
-      unit: null,
-      description: null,
-      price: null,
-      barcode: null
+      itemName: "",
+      defaultWeightChi: "",
+      note: ""
     });
     setForm({
-      code: "",
-      name: "",
-      unit: "",
-      description: "",
-      price: "",
-      barcode: ""
+      itemName: "",
+      defaultWeightChi: "",
+      note: ""
     });
   }
 
   function startEdit(item: Item) {
     setEditing(item);
     setForm({
-      code: item.code ?? "",
-      name: item.name ?? "",
-      unit: item.unit ?? "",
-      description: item.description ?? "",
-      price: item.price ?? "",
-      barcode: item.barcode ?? ""
+      itemName: item.itemName ?? "",
+      defaultWeightChi: item.defaultWeightChi ?? "",
+      note: item.note ?? ""
     });
   }
 
   async function save() {
     if (!editing) return;
     if (!props.canEdit) return;
-    if (!form.name.trim()) {
+    if (!form.itemName.trim()) {
       toast.error("Tên hàng là bắt buộc");
+      return;
+    }
+    const weight = toNumberOrNull(form.defaultWeightChi.trim());
+    if (weight === null || weight < 0) {
+      toast.error("Trọng lượng không hợp lệ");
       return;
     }
 
     try {
       const payload = {
-        code: form.code.trim() ? form.code.trim() : null,
-        name: form.name.trim(),
-        unit: form.unit.trim() ? form.unit.trim() : null,
-        description: form.description.trim() ? form.description.trim() : null,
-        price: form.price.trim() ? toNumberOrNull(form.price.trim()) : null,
-        barcode: form.barcode.trim() ? form.barcode.trim() : null
+        itemName: form.itemName.trim(),
+        defaultWeightChi: weight,
+        note: form.note.trim() ? form.note.trim() : null
       };
 
       const res =
@@ -151,7 +138,7 @@ export function ItemCatalog(props: { canEdit: boolean }) {
 
   async function remove(item: Item) {
     if (!props.canEdit) return;
-    if (!confirm(`Xóa item "${item.name}"?`)) return;
+    if (!confirm(`Xóa item "${item.itemName}"?`)) return;
     try {
       const res = await fetch(`/api/items/${item.id}`, { method: "DELETE" });
       if (!res.ok) {
@@ -195,23 +182,19 @@ export function ItemCatalog(props: { canEdit: boolean }) {
             <thead className="bg-slate-50 text-xs text-slate-600">
               <tr>
                 <th className="px-3 py-2 text-left">Tên</th>
-                <th className="px-3 py-2 text-left">Mã</th>
-                <th className="px-3 py-2 text-left">Đơn vị</th>
-                <th className="px-3 py-2 text-left">Barcode</th>
-                <th className="px-3 py-2 text-right">Giá tham khảo</th>
+                <th className="px-3 py-2 text-right">Trọng lượng (Chỉ)</th>
+                <th className="px-3 py-2 text-left">Ghi chú</th>
                 <th className="px-3 py-2 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {items.map((item) => (
                 <tr key={item.id} className="border-t">
-                  <td className="px-3 py-2 font-medium">{item.name}</td>
-                  <td className="px-3 py-2">{item.code ?? ""}</td>
-                  <td className="px-3 py-2">{item.unit ?? ""}</td>
-                  <td className="px-3 py-2">{item.barcode ?? ""}</td>
+                  <td className="px-3 py-2 font-medium">{item.itemName}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {item.price ?? ""}
+                    {item.defaultWeightChi ?? ""}
                   </td>
+                  <td className="px-3 py-2">{item.note ?? ""}</td>
                   <td className="px-3 py-2 text-right">
                     {props.canEdit ? (
                       <div className="flex justify-end gap-2">
@@ -234,7 +217,7 @@ export function ItemCatalog(props: { canEdit: boolean }) {
               ))}
               {!loading && items.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-8 text-center text-slate-500" colSpan={6}>
+                  <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>
                     Không có dữ liệu
                   </td>
                 </tr>
@@ -263,53 +246,31 @@ export function ItemCatalog(props: { canEdit: boolean }) {
               <div className="text-xs font-medium text-slate-600">Tên</div>
               <input
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={form.name}
-                onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-              />
-            </label>
-            <label className="block">
-              <div className="text-xs font-medium text-slate-600">Mã</div>
-              <input
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={form.code}
-                onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
-              />
-            </label>
-            <label className="block">
-              <div className="text-xs font-medium text-slate-600">Đơn vị</div>
-              <input
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={form.unit}
-                onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
-              />
-            </label>
-            <label className="block md:col-span-3">
-              <div className="text-xs font-medium text-slate-600">Mô tả</div>
-              <input
-                className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={form.description}
+                value={form.itemName}
                 onChange={(e) =>
-                  setForm((p) => ({ ...p, description: e.target.value }))
+                  setForm((p) => ({ ...p, itemName: e.target.value }))
                 }
               />
             </label>
             <label className="block">
-              <div className="text-xs font-medium text-slate-600">Giá tham khảo</div>
+              <div className="text-xs font-medium text-slate-600">
+                Trọng lượng (Chỉ)
+              </div>
               <input
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={form.price}
-                onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
+                value={form.defaultWeightChi}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, defaultWeightChi: e.target.value }))
+                }
                 inputMode="decimal"
               />
             </label>
-            <label className="block md:col-span-2">
-              <div className="text-xs font-medium text-slate-600">Barcode</div>
+            <label className="block md:col-span-3">
+              <div className="text-xs font-medium text-slate-600">Ghi chú</div>
               <input
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                value={form.barcode}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, barcode: e.target.value }))
-                }
+                value={form.note}
+                onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
               />
             </label>
           </div>
