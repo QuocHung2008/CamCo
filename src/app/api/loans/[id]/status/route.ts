@@ -43,10 +43,7 @@ export async function PATCH(
     where: { loanId: ctx.params.id },
     select: { id: true, isRedeemed: true }
   });
-  const shouldRedeem =
-    parsed.data.status === "DA_CHUOC"
-      ? true
-      : items.some((it) => !it.isRedeemed);
+  const shouldRedeem = parsed.data.status === "DA_CHUOC";
 
   await prisma.loanItem.updateMany({
     where: { loanId: ctx.params.id },

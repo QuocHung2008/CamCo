@@ -36,6 +36,19 @@ export const zLoanStatusPatch = z.object({
   status: z.enum(["DA_CHUOC", "CHUA_CHUOC"])
 });
 
+export const zLoanPatch = z.object({
+  recordNote: z.string().trim().max(5000).optional().nullable(),
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        isRedeemed: z.boolean()
+      })
+    )
+    .optional()
+    .nullable()
+});
+
 export const zExportBody = z.object({
   q: z.string().optional().nullable(),
   search_field: z

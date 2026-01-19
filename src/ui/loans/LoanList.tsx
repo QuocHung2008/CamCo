@@ -17,6 +17,9 @@ type Loan = {
   totalAmountVnd: string;
   datePawn: string;
   recordNote: string;
+  itemsSummary: string;
+  itemCount: number;
+  redeemedCount: number;
   statusChuoc: "CHUA_CHUOC" | "DA_CHUOC";
 };
 
@@ -27,11 +30,40 @@ type LoansResponse = {
   loans: Loan[];
 };
 
+type LoanItem = {
+  id: string;
+  qty: number;
+  itemName: string;
+  weightChi: string;
+  note: string;
+  isRedeemed: boolean;
+  redeemedAt: string | null;
+};
+
+type LoanDetail = {
+  id: string;
+  customerName: string;
+  cccd: string;
+  totalAmountVnd: string;
+  datePawn: string;
+  recordNote: string;
+  items: LoanItem[];
+};
+
 function formatMoney(amount: string) {
   const num = Number(amount);
   if (!Number.isFinite(num)) return amount;
   return new Intl.NumberFormat("vi-VN").format(num);
 }
+
+function formatDateTime(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("vi-VN");
+}
+
+const EXPORT_PASSWORD = "197781";
 
 export function LoanList(props: {
   permissions: { canEdit: boolean; canDelete: boolean; canExport: boolean };
@@ -46,6 +78,15 @@ export function LoanList(props: {
   const [data, setData] = useState<LoansResponse | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportPassword, setExportPassword] = useState("");
+
+  const [redeem, setRedeem] = useState<{
+    open: boolean;
+    loanId: string | null;
+  }>({ open: false, loanId: null });
+  const [redeemLoading, setRedeemLoading] = useState(false);
+  const [redeemData, setRedeemData] = useState<LoanDetail | null>(null);
 
   const [menu, setMenu] = useState<{
     open: boolean;
@@ -58,6 +99,7 @@ export function LoanList(props: {
     open: boolean;
     loan: Loan | null;
   }>({ open: false, loan: null });
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
 
   const queryString = useMemo(() => {
     const sp = new URLSearchParams();
@@ -97,6 +139,70 @@ export function LoanList(props: {
     };
   }, [queryString]);
 
+  useEffect(() => {
+    if (!redeem.open || !redeem.loanId) {
+      setRedeemData(null);
+      return;
+    }
+    const controller = new AbortController();
+    (async () => {
+      setRedeemLoading(true);
+      try {
+        const res = await fetch(`/api/loans/${redeem.loanId}`, {
+          signal: controller.signal
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.message ?? "Tải dữ liệu thất bại");
+        }
+        const json = (await res.json()) as { loan: LoanDetail };
+        setRedeemData(json.loan);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
+      } finally {
+        setRedeemLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [redeem.loanId, redeem.open]);
+
+  async function saveRecordNote(loanId: string, note: string) {
+    const res = await fetch(`/api/loans/${loanId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ recordNote: note })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.message ?? "Lưu ghi chú thất bại");
+    }
+  }
+
+  async function patchItemsRedeemed(
+    loanId: string,
+    updates: Array<{ id: string; isRedeemed: boolean }>
+  ) {
+    const res = await fetch(`/api/loans/${loanId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: updates })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.message ?? "Cập nhật chuộc thất bại");
+    }
+    const json = (await res.json()) as {
+      loan: {
+        id: string;
+        statusChuoc: "CHUA_CHUOC" | "DA_CHUOC";
+        itemCount: number;
+        redeemedCount: number;
+      };
+    };
+    return json.loan;
+  }
+
   async function toggleStatus(loan: Loan) {
     if (!props.permissions.canEdit) return;
     const nextStatus: Loan["statusChuoc"] =
@@ -107,7 +213,13 @@ export function LoanList(props: {
       return {
         ...prev,
         loans: prev.loans.map((l) =>
-          l.id === loan.id ? { ...l, statusChuoc: nextStatus } : l
+          l.id === loan.id
+            ? {
+                ...l,
+                statusChuoc: nextStatus,
+                redeemedCount: nextStatus === "DA_CHUOC" ? l.itemCount : 0
+              }
+            : l
         )
       };
     });
@@ -129,7 +241,9 @@ export function LoanList(props: {
         return {
           ...prev,
           loans: prev.loans.map((l) =>
-            l.id === loan.id ? { ...l, statusChuoc: loan.statusChuoc } : l
+            l.id === loan.id
+              ? { ...l, statusChuoc: loan.statusChuoc, redeemedCount: loan.redeemedCount }
+              : l
           )
         };
       });
@@ -180,7 +294,7 @@ export function LoanList(props: {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast.success("Đã tải file export (mật khẩu: 197781)");
+      toast.success("Đã tải file export");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
     }
@@ -249,7 +363,10 @@ export function LoanList(props: {
         <div className="flex items-center gap-2">
           {props.permissions.canExport ? (
             <button
-              onClick={exportLoans}
+              onClick={() => {
+                setExportPassword("");
+                setExportOpen(true);
+              }}
               className="inline-flex items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
             >
               <Download className="h-4 w-4" />
@@ -276,14 +393,22 @@ export function LoanList(props: {
               <tr>
                 <th className="px-3 py-2 text-left">ID</th>
                 <th className="px-3 py-2 text-left">Khách</th>
+                <th className="px-3 py-2 text-left">CCCD</th>
+                <th className="px-3 py-2 text-left">Món hàng</th>
                 <th className="px-3 py-2 text-right">Số tiền</th>
                 <th className="px-3 py-2 text-left">Trạng thái chuộc</th>
                 <th className="px-3 py-2 text-left">Ngày cầm</th>
+                <th className="px-3 py-2 text-left">Ghi chú</th>
+                <th className="px-3 py-2 text-left">Ngày tạo</th>
               </tr>
             </thead>
             <tbody>
               {loans.map((loan) => (
-                <tr key={loan.id} className="border-t">
+                <tr
+                  key={loan.id}
+                  className="border-t"
+                  onDoubleClick={() => setRedeem({ open: true, loanId: loan.id })}
+                >
                   <td
                     className="px-3 py-2 font-mono text-xs text-slate-700"
                     onContextMenu={(e) => {
@@ -295,6 +420,12 @@ export function LoanList(props: {
                     {loan.id.slice(0, 8)}…
                   </td>
                   <td className="px-3 py-2">{loan.customerName}</td>
+                  <td className="px-3 py-2">{loan.cccd}</td>
+                  <td className="px-3 py-2 text-slate-700">
+                    <div className="max-w-[18rem] truncate" title={loan.itemsSummary}>
+                      {loan.itemsSummary}
+                    </div>
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatMoney(loan.totalAmountVnd)}
                   </td>
@@ -308,11 +439,50 @@ export function LoanList(props: {
                   <td className="px-3 py-2">
                     {loan.datePawn ? loan.datePawn.slice(0, 10) : ""}
                   </td>
+                  <td className="px-3 py-2">
+                    <input
+                      className="w-full min-w-44 rounded-md border px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-slate-300 disabled:opacity-60"
+                      value={noteDrafts[loan.id] ?? loan.recordNote ?? ""}
+                      disabled={!props.permissions.canEdit}
+                      onChange={(e) =>
+                        setNoteDrafts((prev) => ({
+                          ...prev,
+                          [loan.id]: e.target.value
+                        }))
+                      }
+                      onBlur={async (e) => {
+                        if (!props.permissions.canEdit) return;
+                        const next = e.target.value;
+                        const prev = loan.recordNote ?? "";
+                        if (next === prev) return;
+                        try {
+                          await saveRecordNote(loan.id, next);
+                          setData((p) => {
+                            if (!p) return p;
+                            return {
+                              ...p,
+                              loans: p.loans.map((l) =>
+                                l.id === loan.id ? { ...l, recordNote: next } : l
+                              )
+                            };
+                          });
+                          toast.success("Đã lưu ghi chú");
+                        } catch (err) {
+                          setNoteDrafts((d) => ({ ...d, [loan.id]: prev }));
+                          toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
+                        }
+                      }}
+                      placeholder="Sửa ghi chú..."
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">
+                    {loan.createdAt ? formatDateTime(loan.createdAt) : ""}
+                  </td>
                 </tr>
               ))}
               {!loading && loans.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-8 text-center text-slate-500" colSpan={5}>
+                  <td className="px-3 py-8 text-center text-slate-500" colSpan={9}>
                     Không có dữ liệu
                   </td>
                 </tr>
@@ -390,6 +560,274 @@ export function LoanList(props: {
           });
         }}
       />
+
+      {exportOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 md:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Nhập mật khẩu export"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setExportOpen(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg">
+            <div className="text-base font-semibold">Nhập mật khẩu để xuất</div>
+            <div className="mt-3 space-y-3">
+              <label className="block">
+                <div className="text-xs font-medium text-slate-600">Mật khẩu</div>
+                <input
+                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+                  value={exportPassword}
+                  onChange={(e) => setExportPassword(e.target.value)}
+                  type="password"
+                  autoFocus
+                />
+              </label>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-slate-50"
+                  onClick={() => setExportOpen(false)}
+                >
+                  Hủy
+                </button>
+                <button
+                  className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                  onClick={async () => {
+                    if (exportPassword !== EXPORT_PASSWORD) {
+                      toast.error("Mật khẩu không đúng");
+                      return;
+                    }
+                    setExportOpen(false);
+                    await exportLoans();
+                  }}
+                >
+                  Xuất
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {redeem.open ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 md:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chuộc phiếu"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setRedeem({ open: false, loanId: null });
+          }}
+        >
+          <div className="w-full max-w-4xl rounded-xl bg-white p-4 shadow-lg">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-base font-semibold">Chuộc phiếu</div>
+              <button
+                className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-slate-50"
+                onClick={() => setRedeem({ open: false, loanId: null })}
+              >
+                Đóng
+              </button>
+            </div>
+
+            {redeemLoading || !redeemData ? (
+              <div className="mt-4 text-sm text-slate-600">Đang tải...</div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className="rounded-lg border bg-slate-50 px-3 py-2">
+                    <div className="text-xs font-medium text-slate-600">Khách</div>
+                    <div className="text-sm font-medium">{redeemData.customerName}</div>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 px-3 py-2">
+                    <div className="text-xs font-medium text-slate-600">CCCD</div>
+                    <div className="text-sm font-medium">{redeemData.cccd}</div>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 px-3 py-2">
+                    <div className="text-xs font-medium text-slate-600">Tổng tiền</div>
+                    <div className="text-sm font-medium">
+                      {formatMoney(redeemData.totalAmountVnd)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className="rounded-lg border bg-slate-50 px-3 py-2">
+                    <div className="text-xs font-medium text-slate-600">Ngày cầm</div>
+                    <div className="text-sm font-medium">
+                      {redeemData.datePawn ? redeemData.datePawn.slice(0, 10) : ""}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 px-3 py-2 md:col-span-2">
+                    <div className="text-xs font-medium text-slate-600">Ghi chú phiếu</div>
+                    <input
+                      className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300 disabled:opacity-60"
+                      value={redeemData.recordNote ?? ""}
+                      disabled={!props.permissions.canEdit}
+                      onChange={(e) =>
+                        setRedeemData((prev) =>
+                          prev ? { ...prev, recordNote: e.target.value } : prev
+                        )
+                      }
+                      onBlur={async (e) => {
+                        if (!props.permissions.canEdit) return;
+                        try {
+                          await saveRecordNote(redeemData.id, e.target.value);
+                          toast.success("Đã lưu ghi chú");
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
+                        }
+                      }}
+                      placeholder="Ghi chú..."
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm text-slate-600">
+                    Double click dòng để đổi trạng thái chuộc
+                  </div>
+                  {props.permissions.canEdit ? (
+                    <button
+                      className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                      onClick={async () => {
+                        const shouldRedeem = redeemData.items.some((it) => !it.isRedeemed);
+                        const updates = redeemData.items.map((it) => ({
+                          id: it.id,
+                          isRedeemed: shouldRedeem
+                        }));
+                        try {
+                          const result = await patchItemsRedeemed(redeemData.id, updates);
+                          setRedeemData((prev) => {
+                            if (!prev) return prev;
+                            return {
+                              ...prev,
+                              items: prev.items.map((it) => ({
+                                ...it,
+                                isRedeemed: shouldRedeem,
+                                redeemedAt: shouldRedeem ? new Date().toISOString() : null
+                              }))
+                            };
+                          });
+                          setData((p) => {
+                            if (!p) return p;
+                            return {
+                              ...p,
+                              loans: p.loans.map((l) =>
+                                l.id === redeemData.id
+                                  ? {
+                                      ...l,
+                                      statusChuoc: result.statusChuoc,
+                                      redeemedCount: result.redeemedCount
+                                    }
+                                  : l
+                              )
+                            };
+                          });
+                          toast.success("Đã cập nhật chuộc");
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
+                        }
+                      }}
+                    >
+                      Đánh dấu: {redeemData.items.some((it) => !it.isRedeemed) ? "Đã chuộc" : "Chưa chuộc"}
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 text-xs text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2 text-right">SL</th>
+                        <th className="px-3 py-2 text-left">Món hàng</th>
+                        <th className="px-3 py-2 text-right">Trọng lượng</th>
+                        <th className="px-3 py-2 text-left">Chuộc</th>
+                        <th className="px-3 py-2 text-left">Ghi chú</th>
+                        <th className="px-3 py-2 text-left">Ngày chuộc</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {redeemData.items.map((it) => (
+                        <tr
+                          key={it.id}
+                          className="border-t"
+                          onDoubleClick={async () => {
+                            if (!props.permissions.canEdit) return;
+                            const next = !it.isRedeemed;
+                            try {
+                              const result = await patchItemsRedeemed(redeemData.id, [
+                                { id: it.id, isRedeemed: next }
+                              ]);
+                              setRedeemData((prev) => {
+                                if (!prev) return prev;
+                                const items = prev.items.map((x) =>
+                                  x.id === it.id
+                                    ? {
+                                        ...x,
+                                        isRedeemed: next,
+                                        redeemedAt: next ? new Date().toISOString() : null
+                                      }
+                                    : x
+                                );
+                                return { ...prev, items };
+                              });
+                              setData((p) => {
+                                if (!p) return p;
+                                return {
+                                  ...p,
+                                  loans: p.loans.map((l) =>
+                                    l.id === redeemData.id
+                                      ? {
+                                          ...l,
+                                          statusChuoc: result.statusChuoc,
+                                          redeemedCount: result.redeemedCount
+                                        }
+                                      : l
+                                  )
+                                };
+                              });
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
+                            }
+                          }}
+                        >
+                          <td className="px-3 py-2 text-right tabular-nums">{it.qty}</td>
+                          <td className="px-3 py-2">{it.itemName}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{it.weightChi}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={
+                                it.isRedeemed
+                                  ? "rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+                                  : "rounded-full bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700"
+                              }
+                            >
+                              {it.isRedeemed ? "Đã chuộc" : "Chưa chuộc"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">{it.note}</td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {it.redeemedAt ? formatDateTime(it.redeemedAt) : ""}
+                          </td>
+                        </tr>
+                      ))}
+                      {redeemData.items.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-8 text-center text-slate-500" colSpan={6}>
+                            Không có món hàng
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

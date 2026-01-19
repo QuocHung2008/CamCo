@@ -4,11 +4,54 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, X } from "lucide-react";
 
+function toTitleCase(input: string) {
+  return input
+    .trim()
+    .split(/\s+/g)
+    .map((part) =>
+      part
+        ? `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`
+        : ""
+    )
+    .join(" ");
+}
+
+function parseMoneyVnd(input: string) {
+  const raw = input.trim().toLowerCase().replace(/[, ]/g, "");
+  if (!raw) return null;
+  let factor = 1;
+  let value = raw;
+  if (raw.endsWith("k")) {
+    factor = 1000;
+    value = raw.slice(0, -1);
+  } else if (raw.endsWith("m")) {
+    factor = 1_000_000;
+    value = raw.slice(0, -1);
+  }
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.round(num * factor);
+}
+
+function formatMoneyVnd(amount: number) {
+  return new Intl.NumberFormat("vi-VN").format(amount);
+}
+
 type Item = {
   id: string;
   itemName: string;
   defaultWeightChi: string;
   note: string;
+};
+
+type LoanItem = {
+  id: string;
+  qty: number;
+  itemName: string;
+  weightChi: string;
+  note: string;
+  isRedeemed: boolean;
+  redeemedAt: string | null;
 };
 
 type Loan = {
@@ -19,7 +62,11 @@ type Loan = {
   totalAmountVnd: string;
   datePawn: string;
   recordNote: string;
+  itemsSummary: string;
+  itemCount: number;
+  redeemedCount: number;
   statusChuoc: "CHUA_CHUOC" | "DA_CHUOC";
+  items: LoanItem[];
 };
 
 type ItemRow = {
@@ -80,8 +127,8 @@ export function LoanCreateModal(props: {
     if (!canSave) return;
     setSaving(true);
     try {
-      const amount = Number(totalAmountVnd);
-      if (!Number.isFinite(amount) || amount < 0) {
+      const parsedAmount = parseMoneyVnd(totalAmountVnd);
+      if (parsedAmount === null || parsedAmount < 0) {
         throw new Error("Số tiền không hợp lệ");
       }
 
@@ -104,7 +151,7 @@ export function LoanCreateModal(props: {
       const payload = {
         customerName: customerName.trim(),
         cccd: cccd.trim(),
-        totalAmountVnd: amount,
+        totalAmountVnd: parsedAmount,
         datePawn,
         recordNote: recordNote.trim() ? recordNote.trim() : null,
         items: rowsToSave.map((r) => ({
@@ -123,9 +170,22 @@ export function LoanCreateModal(props: {
         const err = await res.json().catch(() => null);
         throw new Error(err?.message ?? "Tạo phiếu thất bại");
       }
-      const json = (await res.json()) as { loan: Loan };
+      const json = (await res.json()) as { loan: Omit<Loan, "itemsSummary" | "itemCount" | "redeemedCount" | "statusChuoc"> };
+      const itemCount = json.loan.items.length;
+      const redeemedCount = json.loan.items.filter((it) => it.isRedeemed).length;
+      const itemsSummary = json.loan.items
+        .map((it) => `${it.qty}x${it.itemName}(${String(it.weightChi)} Chỉ)`)
+        .join("; ");
+      const statusChuoc =
+        itemCount > 0 && redeemedCount >= itemCount ? "DA_CHUOC" : "CHUA_CHUOC";
       toast.success("Đã tạo phiếu");
-      props.onCreated(json.loan);
+      props.onCreated({
+        ...json.loan,
+        itemsSummary,
+        itemCount,
+        redeemedCount,
+        statusChuoc
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
     } finally {
@@ -165,6 +225,7 @@ export function LoanCreateModal(props: {
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
+                onBlur={(e) => setCustomerName(toTitleCase(e.target.value))}
                 required
               />
             </label>
@@ -183,6 +244,12 @@ export function LoanCreateModal(props: {
                 className="mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
                 value={totalAmountVnd}
                 onChange={(e) => setTotalAmountVnd(e.target.value)}
+                onBlur={(e) => {
+                  const parsed = parseMoneyVnd(e.target.value);
+                  if (parsed !== null) {
+                    setTotalAmountVnd(formatMoneyVnd(parsed));
+                  }
+                }}
                 inputMode="numeric"
                 required
               />
